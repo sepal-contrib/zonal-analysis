@@ -5,6 +5,7 @@ import numpy as np
 import csv
 import pandas as pd
 import bqplot as bq
+import json
 
 ee.Initialize()
 
@@ -14,6 +15,8 @@ def getVal(feat):
     return ee.Feature(None, {'vals': vals})
 
 def run_zonal_computation(country_code, Map):
+    
+    list_zones = get_ecozones()
     
     ###################################
     ###      placer sur la map     ####
@@ -148,6 +151,7 @@ def run_zonal_computation(country_code, Map):
         mark = bq.Bars(x=x, y=y, scales={'x': x_sc, 'y': y_sc})
     
         fig_hist = bq.Figure(
+            title=list_zones[ecozone],
             marks=[mark], 
             axes=[ax_x, ax_y], 
             padding_x=0.025, 
@@ -165,43 +169,32 @@ def run_zonal_computation(country_code, Map):
     return figs
 
 
+def get_ecozones():
+    #create the list of zones
+    #as ther are no names in the tiff file 
+    list_zones = {
+        41: 'Boreal coniferous forest',
+        43: 'Boreal mountain system',
+        42: 'Boreal tundra woodland',
+        50: 'Polar',
+        24: 'Subtropical desert',
+        22: 'Subtropical dry forest',
+        21: 'Subtropical humid forest',
+        25: 'Subtropical mountain system',
+        23: 'Subtropical steppe',
+        32: 'Temperate continental forest',
+        34: 'Temperate desert',
+        35: 'Temperate mountain system',
+        31: 'Temperate oceanic forest',
+        33: 'Temperate steppe',
+        15: 'Tropical desert',
+        13: 'Tropical dry forest',
+        12: 'Tropical moist forest',
+        16: 'Tropical mountain system',
+        11: 'Tropical rainforest',
+        14: 'Tropical shrubland',
+        90: 'Water'
+    }
+    
+    return list_zones
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-#create the list of zones
-#as ther are no names in the tiff file 
-list_zones = {
-41: 'Boreal coniferous forest',
-43: 'Boreal mountain system',
-42: 'Boreal tundra woodland',
-50: 'Polar',
-24: 'Subtropical desert',
-22: 'Subtropical dry forest',
-21: 'Subtropical humid forest',
-25: 'Subtropical mountain system',
-23: 'Subtropical steppe',
-32: 'Temperate continental forest',
-34: 'Temperate desert',
-35: 'Temperate mountain system',
-31: 'Temperate oceanic forest',
-33: 'Temperate steppe',
-15: 'Tropical desert',
-13: 'Tropical dry forest',
-12: 'Tropical moist forest',
-16: 'Tropical mountain system',
-11: 'Tropical rainforest',
-14: 'Tropical shrubland',
-90: 'Water'
-}
-#list_zones
