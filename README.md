@@ -18,7 +18,7 @@ Pour controler les résultat on affiche aussi les écozones sur un carte ainsi q
 
 ![alt text](./doc/img/carte.png)
 
-Les résultats sont aussi présentés sous forme de graphique.
+Les résultats sont aussi présentés sous forme de graphiques.
  
 ![alt text](./doc/img/hist.png)
 
