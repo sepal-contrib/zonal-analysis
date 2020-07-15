@@ -25,7 +25,7 @@ Les résultats sont aussi présentés sous forme de graphiques.
 
 ## installation 
 
-pour l'utilisé rendez vous dans le terminal de votre compte SEPAL et tapez les commandes suivants : 
+pour l'utiliser, rendez-vous dans le terminal de votre compte SEPAL et tapez les commandes suivants : 
 
 ```
 $ pip install geemap
