@@ -16,12 +16,10 @@ Les resultats obtenus sont présentés sous la forme d'un tableau regroupant les
 
 Pour controler les résultat on affiche aussi les écozones sur un carte ainsi que les diverses couches utiles à leur élaboration. 
 
-Inline-style: 
 ![alt text](./doc/img/carte.png)
 
 Les résultats sont aussi présentés sous forme de graphique.
-
-Inline-style: 
+ 
 ![alt text](./doc/img/hist.png)
 
 
