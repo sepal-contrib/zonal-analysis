@@ -128,8 +128,12 @@ def run_zonal_computation(country_code, Map):
     out_stats = os.path.join(out_dir, country_code+'_stats.csv') 
     stats.to_csv(out_stats, index=False) 
     
-    link = "/api/files/download?path={}".format(out_stats)
-
+    
+    result_path = os.path.expanduser(out_stats)
+    home_path = os.path.expanduser('~')
+    download_path='/'+os.path.relpath(result_path,home_path)
+    
+    link = "/api/files/download?path={}".format(download_path)
     
     #############################
     ##    tracer les figures ####
