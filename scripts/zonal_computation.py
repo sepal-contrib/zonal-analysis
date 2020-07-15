@@ -127,6 +127,8 @@ def run_zonal_computation(country_code, Map):
     #############################
     out_stats = os.path.join(out_dir, country_code+'_stats.csv') 
     stats.to_csv(out_stats, index=False) 
+    
+    link = "/api/files/download?path={}".format(out_stats)
 
     
     #############################
@@ -166,7 +168,7 @@ def run_zonal_computation(country_code, Map):
         figs.append(fig_hist)
 
     
-    return figs
+    return figs, link
 
 
 def get_ecozones():
