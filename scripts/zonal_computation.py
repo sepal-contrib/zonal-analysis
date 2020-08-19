@@ -6,6 +6,13 @@ import csv
 import pandas as pd
 import bqplot as bq
 import json
+from scripts import gdrive
+from sepal_ui.scripts import utils as su
+from sepal_ui.scripts import gee
+import glob
+import gdal
+from sepal_ui import gdal as sgdal
+import subprocess
 
 ee.Initialize()
 
@@ -14,9 +21,11 @@ def getVal(feat):
     vals = ee.Dictionary(feat.get('histogram')).keys()
     return ee.Feature(None, {'vals': vals})
 
-def run_zonal_computation(country_code, Map):
+def run_zonal_computation(country_code, Map, output):
     
     list_zones = get_ecozones()
+    
+    drive_handler = gdrive.gdrive()
     
     ###################################
     ###      placer sur la map     ####
@@ -83,81 +92,189 @@ def run_zonal_computation(country_code, Map):
     })
     Map.addLayer(outline, {'palette': '000000'}, 'gez_2010_vector')
     
-
-    #export raw data
-    out_dir = os.path.join(os.path.expanduser('~'), 'downloads')
-    raw_stats = os.path.join(out_dir, country_code+'_raw.csv') 
-    geemap.zonal_statistics(country_gfcc_2010, country_gez_2010_vector, raw_stats, statistics_type='FIXED_HIST', hist_min=0, hist_max=100, hist_steps=50, scale=100)
-
+    ########################################
+    ##          export useful maps        ##
+    ########################################
+    su.displayIO(output, 'download treecover')
+    
+    #create the result folder 
+    resultDir = os.path.join(os.path.expanduser('~'), 'zonal_results', country_code, '')
+    os.makedirs(resultDir, exist_ok=True)
+    
+    #export treecover 
+    filename = country_code + '_treecover'
+    gfcc = resultDir + filename + '.tif'
+    if not os.path.isfile(gfcc):
+        
+        files = drive_handler.get_files(filename)
+        if files == []:
+            su.displayIO(output, 'import treecover to sepal')
+        
+            task_config = {
+                'image':country_gfcc_2010,
+                'description':filename,
+                'scale': 30,
+                'region':country.geometry(),
+                'maxPixels': 1e13
+            }
+    
+            task = ee.batch.Export.image.toDrive(**task_config)
+            task.start()
+        
+            gee.wait_for_completion(filename, output)
+            su.displayIO(output, 'image exported to gdrive')
+    
+        #import tiles to sepal
+        su.displayIO(output, 'import tiles to sepal')
+    
+        files = drive_handler.get_files(filename)
+        drive_handler.download_files(files, resultDir)
+    
+        #find the tiles
+        pathname = filename + "*.tif"
+        files = [file for file in glob.glob(resultDir + pathname)]
+        
+        #run the merge process
+        gfcc_tmp = resultDir + filename + '_tmp.tif'
+        output = sgdal.merge(files, out_filename=gfcc_tmp, v=True, output=output)
+        [os.remove(file) for file in files]
+        
+    
+        #compress it 
+        gdal.Translate(
+            gfcc, 
+            gfcc_tmp, 
+            creationOptions=['COMPRESS=LZW'],
+            outputType=gdalconst.GDT_Byte
+        )
+        os.remove(gfcc_tmp)
+    
+    #export the zones 
+    filename = country_code + '_zones'
+    zone = resultDir + filename + '.tif'
+    if not os.path.isfile(zone):
+        
+        
+        files = drive_handler.get_files(filename)
+        if files == []:
+            
+            su.displayIO(output, 'import ecozones to sepal')
+    
+            task_config = {
+                'image':country_gez_2010,
+                'description':filename,
+                'scale': 30,
+                'region':country.geometry(),
+                'maxPixels': 1e13
+            }
+    
+            task = ee.batch.Export.image.toDrive(**task_config)
+            task.start()
+        
+            gee.wait_for_completion(filename, output)
+            su.displayIO(output, 'image exported to gdrive')
+            
+            
+    
+        #import tiles to sepal 
+        su.displayIO(output, 'import tiles to sepal')
+    
+        files = drive_handler.get_files(filename)
+        drive_handler.download_files(files, resultDir)
+    
+        #find the tiles
+        pathname = filename + "*.tif"
+        files = [file for file in glob.glob(resultDir + pathname)]
+        
+        #run the merge process
+        zone_tmp = resultDir + filename + '_tmp.tif'
+        sgdal.merge(files, out_filename=zone_tmp, v=True, output=output)
+        [os.remove(file) for file in files]
+    
+        #compress it 
+        gdal.Translate(
+            zone, 
+            zone_tmp, 
+            creationOptions=['COMPRESS=LZW'], 
+            outputType=gdalconst.GDT_Byte
+        )
+        os.remove(zone_tmp)
+    
+    ########################################
+    ##      run zonal analysis            ##
+    ########################################
+    raw_data = resultDir + country_code + '_raw_data.txt'
+    if not os.path.isfile(raw_data):
+        
+        su.displayIO(output, 'Compute zonal analysis')
+        
+        command = [
+            'oft-zonal_large_list.py',
+            '-i', gfcc,
+            '-um', zone,
+            '-o', raw_data
+        ]
+    
+        print(' '.join(command))
+    
+        kwargs = {
+            'args' : command,
+            'cwd' : os.path.expanduser('~'),
+            'stdout' : subprocess.PIPE,
+            'stderr' : subprocess.PIPE,
+            'universal_newlines' : True
+        }
+    
+        with subprocess.Popen(**kwargs) as p:
+            for line in p.stdout:
+                su.displayIO(output, line)
+                
 
     #######################################
     ###  lire et concatener les données ###
     #######################################
-    data = pd.read_csv(raw_stats, sep=',')
+    df = pd.read_csv(raw_data, sep=' ', header=None)
+    names = ['code', 'total'] + ['tc{:02}'.format(i) for i in range (df.shape[1]-2)]
+    df.columns = names
 
-    #enlever les lignes Nan 
-    #(vérifier dans le tableau d'avant qu'elles ne sont pas trop grandes)
-    data = data.dropna()
-
-    #recuperer les valeurs de label
-    ecozones = data.label.unique()
-
-    #aggreger les lignes avec les même valeurs 
-    dummy = []
-    for i in range(0, 100, 2):
-        dummy.append("{:.1f}".format(i))
-    stats = pd.DataFrame(dummy, columns=['treecover'])
-
-    for index, ecozone in enumerate(ecozones): 
-        patches = data.loc[data.label == ecozone]
-        label = []
-        for i in range(0, 100, 2):
-            label.append(["{:.1f}".format(i), 0])
-        
-        for index, row in patches.iterrows():
-            tmp = json.loads(row['histogram'])        
-            for index, value in enumerate(tmp):
-                label[index][1] += value[1]
-            
-        label = pd.DataFrame(label, columns=['treecover', list_zones[ecozone]])
-        stats = pd.merge(left=stats, right=label, left_on='treecover', right_on='treecover')
+    #ajouter les colonnes maquantes 
+    for i in range(df.shape[1]-2, 100):
+        df['tc{:02}'.format(i)] = [0 for j in range(len(df))]
+    
+    #add zones
+    ecozones =[get_ecozones()[code] for code in df['code']]
+    df['zone'] = ecozones
     
     #############################
     ####   exporter     #########
     #############################
-    out_stats = os.path.join(out_dir, country_code+'_stats.csv') 
-    stats.to_csv(out_stats, index=False) 
-    
-    
-    result_path = os.path.expanduser(out_stats)
-    home_path = os.path.expanduser('~')
-    download_path='/'+os.path.relpath(result_path,home_path)
-    
-    link = "/api/files/download?path={}".format(download_path)
+    out_stats = os.path.join(resultDir, country_code + '_stats.csv') 
+    df.to_csv(out_stats, index=False) 
     
     #############################
     ##    tracer les figures ####
     #############################
+    
+    list_zones = get_ecozones()
 
     x_sc = bq.OrdinalScale()
     ax_x = bq.Axis(label='treecover', scale=x_sc)
 
-    x= []
-    for i in range(0, 100, 2):
-        x.append(i)
-
     figs = []
     for ecozone in ecozones:
-        y_sc = bq.LinearScale(max=stats[list_zones[ecozone]].max())
+        tmp = df.loc[df['zone'] == ecozone]
+        values = tmp.filter(items=['tc{:02}'.format(i) for i in range(100)])
+        
+        y_sc = bq.LinearScale(max=float(values.max(axis=1).array[0]))
         ax_y = bq.Axis(label='surface (px)', scale=y_sc, orientation='vertical')
-        y = []
-        for index, row in stats.iterrows():
-            y.append(row[list_zones[ecozone]])
+        
+        x= [i for i in range(100)]
+        y = [values['tc{:02}'.format(i)].array[0] for i in range(100)]
     
         mark = bq.Bars(x=x, y=y, scales={'x': x_sc, 'y': y_sc})
     
         fig_hist = bq.Figure(
-            title=list_zones[ecozone],
+            title=ecozone,
             marks=[mark], 
             axes=[ax_x, ax_y], 
             padding_x=0.025, 
@@ -172,7 +289,7 @@ def run_zonal_computation(country_code, Map):
         figs.append(fig_hist)
 
     
-    return figs, link
+    return figs, out_stats
 
 
 def get_ecozones():
