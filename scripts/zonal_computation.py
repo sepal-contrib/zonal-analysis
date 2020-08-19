@@ -13,6 +13,7 @@ import glob
 import gdal
 from sepal_ui import gdal as sgdal
 import subprocess
+import gdalconst
 
 ee.Initialize()
 
@@ -136,7 +137,7 @@ def run_zonal_computation(country_code, Map, output):
         
         #run the merge process
         gfcc_tmp = resultDir + filename + '_tmp.tif'
-        output = sgdal.merge(files, out_filename=gfcc_tmp, v=True, output=output)
+        sgdal.merge(files, out_filename=gfcc_tmp, v=True, output=output)
         [os.remove(file) for file in files]
         
     
