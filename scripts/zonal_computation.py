@@ -91,7 +91,7 @@ def run_zonal_computation(country_code, Map, output):
     #export raw data
     out_dir = os.path.join(os.path.expanduser('~'), 'downloads')
     raw_stats = os.path.join(out_dir, country_code+'_raw.csv') 
-    geemap.zonal_statistics(country_gfcc_2010, country_gez_2010_vector, raw_stats, statistics_type='FIXED_HIST', hist_min=0, hist_max=100, hist_steps=100, scale=100)
+    geemap.zonal_statistics(country_gfcc_2010, country_gez_2010_vector, raw_stats, statistics_type='FIXED_HIST', scale=100, crs=getConformProj(), hist_min=0, hist_max=100, hist_steps=100)
 
 
     #######################################
@@ -164,6 +164,24 @@ def run_zonal_computation(country_code, Map, output):
     
     return figs, out_stats
 
+def getConformProj():
+    
+    wkt = """
+        PROJCS["World_Mollweide",
+            GEOGCS["GCS_WGS_1984",
+                DATUM["WGS_1984",
+                    SPHEROID["WGS_1984",6378137,298.257223563]],
+                PRIMEM["Greenwich",0],
+                UNIT["Degree",0.017453292519943295]],
+            PROJECTION["Mollweide"],
+            PARAMETER["False_Easting",0],
+            PARAMETER["False_Northing",0],
+            PARAMETER["Central_Meridian",0],
+            UNIT["Meter",1],
+            AUTHORITY["EPSG","54009"]]'
+    """
+
+    return ee.Projection(wkt)
 
 def get_ecozones():
     #create the list of zones
