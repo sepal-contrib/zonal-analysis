@@ -91,7 +91,7 @@ def run_zonal_computation(country_code, Map, output):
     #export raw data
     out_dir = os.path.join(os.path.expanduser('~'), 'downloads')
     raw_stats = os.path.join(out_dir, country_code+'_raw.csv') 
-    geemap.zonal_statistics(country_gfcc_2010, country_gez_2010_vector, raw_stats, statistics_type='FIXED_HIST', hist_min=0, hist_max=100, hist_steps=50, scale=100)
+    geemap.zonal_statistics(country_gfcc_2010, country_gez_2010_vector, raw_stats, statistics_type='FIXED_HIST', hist_min=0, hist_max=100, hist_steps=100, scale=100)
 
 
     #######################################
@@ -108,14 +108,14 @@ def run_zonal_computation(country_code, Map, output):
 
     #aggreger les lignes avec les même valeurs 
     dummy = []
-    for i in range(0, 100, 2):
+    for i in range(100):
         dummy.append("{:.1f}".format(i))
     stats = pd.DataFrame(dummy, columns=['treecover'])
 
     for index, ecozone in enumerate(ecozones): 
         patches = data.loc[data.label == ecozone]
         label = []
-        for i in range(0, 100, 2):
+        for i in range(100):
             label.append(["{:.1f}".format(i), 0])
         
         for index, row in patches.iterrows():
@@ -140,7 +140,7 @@ def run_zonal_computation(country_code, Map, output):
     ax_x = bq.Axis(label='treecover', scale=x_sc)
 
     x= []
-    for i in range(0, 100, 2):
+    for i in range(100):
         x.append(i)
 
     figs = []
