@@ -8,8 +8,11 @@ import bqplot as bq
 import json
 import io
 from contextlib import redirect_stdout
-from sepal_ui.scripts import utils as su
+from sepal_ui import mapping as sm
 import time
+from pathlib import Path
+import ipyvuetify as v
+from sepal_ui import sepalwidgets as sw
 
 ee.Initialize()
 
@@ -18,22 +21,28 @@ def getVal(feat):
     vals = ee.Dictionary(feat.get('histogram')).keys()
     return ee.Feature(None, {'vals': vals})
 
-def run_zonal_computation(country_code, Map, output):
+def run_zonal_computation(assetId, output):
     
     list_zones = get_ecozones()
     
+    #get the aoi name 
+    aoi_name = Path(assetId).stem.replace('aoi_', '')
+    
     #create the result folder 
-    resultDir = os.path.join(os.path.expanduser('~'), 'zonal_results', country_code, '')
+    resultDir = os.path.join(os.path.expanduser('~'), 'zonal_results', aoi_name, '')
     os.makedirs(resultDir, exist_ok=True)
+    
+    #create the map
+    Map = sm.SepalMap(['CartoDB.Positron'])
     
     ###################################
     ###      placer sur la map     ####
     ###################################
-    su.displayIO(output, 'viszualiser data')
+    output.add_live_msg('viszualiser data')
     
-    country = ee.FeatureCollection('USDOS/LSIB_SIMPLE/2017').filter(ee.Filter.eq('country_co', country_code))
-    Map.addLayer(country, {}, 'country_code')
-    Map.centerObject(country)
+    aoi = ee.FeatureCollection(assetId)
+    Map.addLayer(aoi, {}, 'aoi')
+    Map.zoom_ee_object(aoi.geometry())
      
     #add dataset 
     dataset = ee.ImageCollection('NASA/MEASURES/GFCC/TC/v3').filter(ee.Filter.date('2010-01-01', '2010-12-31'))
@@ -43,24 +52,24 @@ def run_zonal_computation(country_code, Map, output):
         'max': 100.0,
         'palette': ['ffffff', 'afce56', '5f9c00', '0e6a00', '003800'],
     }
-    country_gfcc_2010 = treeCanopyCover.mean().clip(country)
+    country_gfcc_2010 = treeCanopyCover.mean().clip(aoi)
     Map.addLayer(country_gfcc_2010, treeCanopyCoverVis, 'Tree Canopy Cover');
 
     #load the ecozones 
     gez_2010 = ee.Image('users/bornToBeAlive/gez_2010_wgs84')
-    country_gez_2010 =  gez_2010.select('b1').clip(country)
+    country_gez_2010 =  gez_2010.select('b1').clip(aoi)
     vizParam = {
         'min': 0, 
         'max': 21,
         'bands': ['b1'],
         'palette': ['black', 'green', 'blue'] 
     }
-    Map.addLayer(country_gez_2010, vizParam, 'gez_2010_raster')
+    Map.addLayer(country_gez_2010, vizParam, 'gez 2010 raster')
 
     #show the 0 values
     cdl = country_gez_2010.select('b1')
     masked = ee.Image(cdl).updateMask(cdl.eq(0))
-    Map.addLayer(masked, {'palette': 'red'}, 'masked_0')
+    Map.addLayer(masked, {'palette': 'red'}, 'masked 0 data')
     
     #mask these values from the results
     country_gez_2010 = ee.Image(cdl).updateMask(cdl.neq(0))
@@ -68,7 +77,7 @@ def run_zonal_computation(country_code, Map, output):
     #Get the list of values from the mosaic image
     freqHist = country_gez_2010.reduceRegions(**{
         'reducer': ee.Reducer.frequencyHistogram(), 
-        'collection': country, 
+        'collection': aoi, 
         'scale': 100, 
     })
 
@@ -78,7 +87,7 @@ def run_zonal_computation(country_code, Map, output):
     #Run reduceToVectors per class by masking all other classes.
     classes = country_gez_2010.reduceToVectors(**{
         'reducer': ee.Reducer.countEvery(), 
-        'geometry': country, 
+        'geometry': aoi, 
         'scale': 100,
         'maxPixels': 1e10
     })
@@ -91,15 +100,15 @@ def run_zonal_computation(country_code, Map, output):
         'color': 1,
         'width': 3
     })
-    Map.addLayer(outline, {'palette': '000000'}, 'gez_2010_vector')
+    Map.addLayer(outline, {'palette': '000000'}, 'gez 2010 borders')
     
 
     #export raw data
     out_dir = os.path.join(os.path.expanduser('~'), 'downloads')
-    raw_stats = os.path.join(resultDir, country_code + '_raw.csv') 
+    raw_stats = os.path.join(resultDir, aoi_name + '_raw.csv') 
     
     if not os.path.isfile(raw_stats):
-        print('compute the zonal analysis')
+        output.add_live_msg('compute the zonal analysis')
         #compute the zonal analysis
         computation = False
         cpt = 0
@@ -118,7 +127,7 @@ def run_zonal_computation(country_code, Map, output):
                     hist_steps      = 100,
                     tile_scale      = 2**cpt
                 )
-            su.displayIO(output, f.getvalue())
+            output.add_live_msg(f.getvalue())
         
             #check if the computation have finished on a file 
             if not os.path.isfile(raw_stats):
@@ -127,10 +136,10 @@ def run_zonal_computation(country_code, Map, output):
                     raise Exception("Aoi is to big")
                 
                 #change the tile_scale and relaunch the process
-                su.displayIO(output, f.getvalue(), 'error')
+                output.add_live_msg(f.getvalue(), 'error')
                 time.sleep(2)
                 cpt += 1
-                su.displayIO(output, 'on augmente le tile_scale ({})'.format(2**cpt), 'warning')
+                output.add_live_msg('Increasing tile_scale ({})'.format(2**cpt), 'warning')
                 time.sleep(2)
             else:
                 computation = True
@@ -139,13 +148,13 @@ def run_zonal_computation(country_code, Map, output):
     ###  lire et concatener les données ###
     #######################################
     
-    out_stats = os.path.join(resultDir, country_code + '_stats.csv') 
+    out_stats = os.path.join(resultDir, aoi_name + '_stats.csv') 
     
     if not os.path.isfile(out_stats):
-        su.displayIO(output, 'lire et concatener les données')
+        output.add_live_msg('read and concatenate the data')
         data = pd.read_csv(raw_stats, sep=',')
 
-        su.displayIO(output, 'retirer les no_data')
+        output.add_live_msg('remove no_data')
         #enlever les lignes Nan 
         #(vérifier dans le tableau d'avant qu'elles ne sont pas trop grandes)
         data = data.dropna()
@@ -153,14 +162,14 @@ def run_zonal_computation(country_code, Map, output):
         #recuperer les valeurs de label
         ecozones = data.label.unique()
 
-        su.displayIO(output, 'merge')
+        output.add_live_msg('merge')
         #aggreger les lignes avec les même valeurs 
         dummy = []
         for i in range(100):
             dummy.append("{:.1f}".format(i))
         stats = pd.DataFrame(dummy, columns=['treecover'])
 
-        su.displayIO(output, 'labeliser')
+        output.add_live_msg('labeliser')
         for index, ecozone in enumerate(ecozones): 
             patches = data.loc[data.label == ecozone]
             label = []
@@ -179,9 +188,9 @@ def run_zonal_computation(country_code, Map, output):
         stats.to_csv(out_stats, index=False) 
     
     #############################
-    ##    tracer les figures ####
+    ##    create the layout    ##
     #############################
-    su.displayIO(output, 'tracer les figures')
+    output.add_live_msg('create the layout')
     
     stats = pd.read_csv(out_stats)
     
@@ -212,8 +221,16 @@ def run_zonal_computation(country_code, Map, output):
         )
     
         figs.append(fig_hist)
+        
     
-    return figs, out_stats
+    #create the partial layout 
+    children = [
+        v.Flex(xs12=True, class_='pa-0', children=[sw.DownloadBtn('Download .csv', path=out_stats)]),
+        v.Flex(xs12=True, class_='pa-0', children=[Map]),
+        v.Flex(xs12=True, class_='pa-0', children=figs)
+    ]
+    
+    return children
 
 def getConformProj():
     
@@ -229,7 +246,7 @@ def getConformProj():
             PARAMETER["False_Northing",0],
             PARAMETER["Central_Meridian",0],
             UNIT["Meter",1],
-            AUTHORITY["EPSG","54009"]]'
+            AUTHORITY["ESRI","54009"]]'
     """
 
     return ee.Projection(wkt)
