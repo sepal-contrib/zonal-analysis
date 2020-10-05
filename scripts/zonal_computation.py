@@ -34,7 +34,6 @@ def run_zonal_computation(assetId, output):
     
     #create the map
     Map = sm.SepalMap(['CartoDB.Positron'])
-    Map.add_legend(legend_keys=list(get_ecozones().values()), legend_colors=list(get_colors().values()), position='topleft')
     
     ###################################
     ###      placer sur la map     ####
@@ -201,12 +200,14 @@ def run_zonal_computation(assetId, output):
         x.append(i)
     
     figs = []
+    zones_id = []
     for ecozone in ecozones:
         
         #get the # of the ecozone 
         for index, value in get_ecozones().items():
             if value == ecozone: 
                 zone_index = index
+                zones_id.append(index)
                 break
             
         y_sc = bq.LinearScale(max=stats[ecozone].max())
@@ -225,6 +226,10 @@ def run_zonal_computation(assetId, output):
     
         figs.append(fig_hist)
         
+    #add a coherent legend
+    legend_keys = [get_ecozones()[i] for i in zones_id]
+    legend_colors = [get_colors()[i] for i in zones_id]    
+    Map.add_legend(legend_keys=legend_keys, legend_colors=legend_colors, position='topleft')
     
     #create the partial layout 
     children = [
