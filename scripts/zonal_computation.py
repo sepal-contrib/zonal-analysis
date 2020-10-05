@@ -6,14 +6,13 @@ import csv
 import pandas as pd
 import bqplot as bq
 import json
-from scripts import gdrive
-from sepal_ui.scripts import utils as su
-from sepal_ui.scripts import gee
-import glob
-import gdal
-from sepal_ui import gdal as sgdal
-import subprocess
-import gdalconst
+import io
+from contextlib import redirect_stdout
+from sepal_ui import mapping as sm
+import time
+from pathlib import Path
+import ipyvuetify as v
+from sepal_ui import sepalwidgets as sw
 
 ee.Initialize()
 
@@ -22,18 +21,29 @@ def getVal(feat):
     vals = ee.Dictionary(feat.get('histogram')).keys()
     return ee.Feature(None, {'vals': vals})
 
-def run_zonal_computation(country_code, Map, output):
+def run_zonal_computation(assetId, output):
     
     list_zones = get_ecozones()
     
-    drive_handler = gdrive.gdrive()
+    #get the aoi name 
+    aoi_name = Path(assetId).stem.replace('aoi_', '')
+    
+    #create the result folder 
+    resultDir = os.path.join(os.path.expanduser('~'), 'zonal_results', aoi_name, '')
+    os.makedirs(resultDir, exist_ok=True)
+    
+    #create the map
+    Map = sm.SepalMap(['CartoDB.Positron'])
+    Map.add_legend(legend_keys=list(get_ecozones().values()), legend_colors=list(get_colors().values()), position='topleft')
     
     ###################################
     ###      placer sur la map     ####
     ###################################
-    country = ee.FeatureCollection('USDOS/LSIB_SIMPLE/2017').filter(ee.Filter.eq('country_co', country_code))
-    Map.addLayer(country, {}, 'country_code')
-    Map.centerObject(country)
+    output.add_live_msg('viszualiser data')
+    
+    aoi = ee.FeatureCollection(assetId)
+    Map.addLayer(aoi, {}, 'aoi')
+    Map.zoom_ee_object(aoi.geometry())
      
     #add dataset 
     dataset = ee.ImageCollection('NASA/MEASURES/GFCC/TC/v3').filter(ee.Filter.date('2010-01-01', '2010-12-31'))
@@ -43,24 +53,19 @@ def run_zonal_computation(country_code, Map, output):
         'max': 100.0,
         'palette': ['ffffff', 'afce56', '5f9c00', '0e6a00', '003800'],
     }
-    country_gfcc_2010 = treeCanopyCover.mean().clip(country)
+    country_gfcc_2010 = treeCanopyCover.mean().clip(aoi)
     Map.addLayer(country_gfcc_2010, treeCanopyCoverVis, 'Tree Canopy Cover');
 
     #load the ecozones 
     gez_2010 = ee.Image('users/bornToBeAlive/gez_2010_wgs84')
-    country_gez_2010 =  gez_2010.select('b1').clip(country)
-    vizParam = {
-        'min': 0, 
-        'max': 21,
-        'bands': ['b1'],
-        'palette': ['black', 'green', 'blue'] 
-    }
-    Map.addLayer(country_gez_2010, vizParam, 'gez_2010_raster')
+    country_gez_2010 =  gez_2010.select('b1').clip(aoi)
+    
+    Map.addLayer(country_gez_2010.sldStyle(getSldStyle()), {}, 'gez 2010 raster')
 
     #show the 0 values
     cdl = country_gez_2010.select('b1')
     masked = ee.Image(cdl).updateMask(cdl.eq(0))
-    Map.addLayer(masked, {'palette': 'red'}, 'masked_0')
+    Map.addLayer(masked, {'palette': 'red'}, 'masked 0 data')
     
     #mask these values from the results
     country_gez_2010 = ee.Image(cdl).updateMask(cdl.neq(0))
@@ -68,7 +73,7 @@ def run_zonal_computation(country_code, Map, output):
     #Get the list of values from the mosaic image
     freqHist = country_gez_2010.reduceRegions(**{
         'reducer': ee.Reducer.frequencyHistogram(), 
-        'collection': country, 
+        'collection': aoi, 
         'scale': 100, 
     })
 
@@ -78,7 +83,7 @@ def run_zonal_computation(country_code, Map, output):
     #Run reduceToVectors per class by masking all other classes.
     classes = country_gez_2010.reduceToVectors(**{
         'reducer': ee.Reducer.countEvery(), 
-        'geometry': country, 
+        'geometry': aoi, 
         'scale': 100,
         'maxPixels': 1e10
     })
@@ -91,207 +96,156 @@ def run_zonal_computation(country_code, Map, output):
         'color': 1,
         'width': 3
     })
-    Map.addLayer(outline, {'palette': '000000'}, 'gez_2010_vector')
+    Map.addLayer(outline, {'palette': '000000'}, 'gez 2010 borders')
     
-    ########################################
-    ##          export useful maps        ##
-    ########################################
-    su.displayIO(output, 'download treecover')
+
+    #export raw data
+    out_dir = os.path.join(os.path.expanduser('~'), 'downloads')
+    raw_stats = os.path.join(resultDir, aoi_name + '_raw.csv') 
     
-    #create the result folder 
-    resultDir = os.path.join(os.path.expanduser('~'), 'zonal_results', country_code, '')
-    os.makedirs(resultDir, exist_ok=True)
-    
-    #export treecover 
-    filename = country_code + '_treecover'
-    gfcc = resultDir + filename + '.tif'
-    if not os.path.isfile(gfcc):
+    if not os.path.isfile(raw_stats):
+        output.add_live_msg('compute the zonal analysis')
+        #compute the zonal analysis
+        computation = False
+        cpt = 0
+        while not computation:
+            f = io.StringIO()
+            with redirect_stdout(f):
+                geemap.zonal_statistics(
+                    in_value_raster = country_gfcc_2010, 
+                    in_zone_vector  = country_gez_2010_vector, 
+                    out_file_path   = raw_stats, 
+                    statistics_type = 'FIXED_HIST', 
+                    scale           = 100, 
+                    crs             = getConformProj(), 
+                    hist_min        = 0, 
+                    hist_max        = 100, 
+                    hist_steps      = 100,
+                    tile_scale      = 2**cpt
+                )
+            output.add_live_msg(f.getvalue())
         
-        files = drive_handler.get_files(filename)
-        if files == []:
-            su.displayIO(output, 'import treecover to sepal')
-        
-            task_config = {
-                'image':country_gfcc_2010,
-                'description':filename,
-                'scale': 30,
-                'region':country.geometry(),
-                'maxPixels': 1e13
-            }
-    
-            task = ee.batch.Export.image.toDrive(**task_config)
-            task.start()
-        
-            gee.wait_for_completion(filename, output)
-            su.displayIO(output, 'image exported to gdrive')
-    
-        #import tiles to sepal
-        su.displayIO(output, 'import tiles to sepal')
-    
-        files = drive_handler.get_files(filename)
-        drive_handler.download_files(files, resultDir)
-    
-        #find the tiles
-        pathname = filename + "*.tif"
-        files = [file for file in glob.glob(resultDir + pathname)]
-        
-        #run the merge process
-        gfcc_tmp = resultDir + filename + '_tmp.tif'
-        sgdal.merge(files, out_filename=gfcc_tmp, v=True, output=output)
-        [os.remove(file) for file in files]
-        
-    
-        #compress it 
-        gdal.Translate(
-            gfcc, 
-            gfcc_tmp, 
-            creationOptions=['COMPRESS=LZW'],
-            outputType=gdalconst.GDT_Byte
-        )
-        os.remove(gfcc_tmp)
-    
-    #export the zones 
-    filename = country_code + '_zones'
-    zone = resultDir + filename + '.tif'
-    if not os.path.isfile(zone):
-        
-        
-        files = drive_handler.get_files(filename)
-        if files == []:
-            
-            su.displayIO(output, 'import ecozones to sepal')
-    
-            task_config = {
-                'image':country_gez_2010,
-                'description':filename,
-                'scale': 30,
-                'region':country.geometry(),
-                'maxPixels': 1e13
-            }
-    
-            task = ee.batch.Export.image.toDrive(**task_config)
-            task.start()
-        
-            gee.wait_for_completion(filename, output)
-            su.displayIO(output, 'image exported to gdrive')
-            
-            
-    
-        #import tiles to sepal 
-        su.displayIO(output, 'import tiles to sepal')
-    
-        files = drive_handler.get_files(filename)
-        drive_handler.download_files(files, resultDir)
-    
-        #find the tiles
-        pathname = filename + "*.tif"
-        files = [file for file in glob.glob(resultDir + pathname)]
-        
-        #run the merge process
-        zone_tmp = resultDir + filename + '_tmp.tif'
-        sgdal.merge(files, out_filename=zone_tmp, v=True, output=output)
-        [os.remove(file) for file in files]
-    
-        #compress it 
-        gdal.Translate(
-            zone, 
-            zone_tmp, 
-            creationOptions=['COMPRESS=LZW'], 
-            outputType=gdalconst.GDT_Byte
-        )
-        os.remove(zone_tmp)
-    
-    ########################################
-    ##      run zonal analysis            ##
-    ########################################
-    raw_data = resultDir + country_code + '_raw_data.txt'
-    if not os.path.isfile(raw_data):
-        
-        su.displayIO(output, 'Compute zonal analysis')
-        
-        command = [
-            'oft-zonal_large_list.py',
-            '-i', gfcc,
-            '-um', zone,
-            '-o', raw_data
-        ]
-    
-        print(' '.join(command))
-    
-        kwargs = {
-            'args' : command,
-            'cwd' : os.path.expanduser('~'),
-            'stdout' : subprocess.PIPE,
-            'stderr' : subprocess.PIPE,
-            'universal_newlines' : True
-        }
-    
-        with subprocess.Popen(**kwargs) as p:
-            for line in p.stdout:
-                su.displayIO(output, line)
+            #check if the computation have finished on a file 
+            if not os.path.isfile(raw_stats):
+                #cannot use tile_scale > 16 
+                if cpt == 3:
+                    raise Exception("Aoi is to big")
                 
+                #change the tile_scale and relaunch the process
+                output.add_live_msg(f.getvalue(), 'error')
+                time.sleep(2)
+                cpt += 1
+                output.add_live_msg('Increasing tile_scale ({})'.format(2**cpt), 'warning')
+                time.sleep(2)
+            else:
+                computation = True
 
     #######################################
     ###  lire et concatener les données ###
     #######################################
-    df = pd.read_csv(raw_data, sep=' ', header=None)
-    names = ['code', 'total'] + ['tc{:02}'.format(i) for i in range (df.shape[1]-2)]
-    df.columns = names
+    
+    out_stats = os.path.join(resultDir, aoi_name + '_stats.csv') 
+    
+    if not os.path.isfile(out_stats):
+        output.add_live_msg('read and concatenate the data')
+        data = pd.read_csv(raw_stats, sep=',')
 
-    #ajouter les colonnes maquantes 
-    for i in range(df.shape[1]-2, 100):
-        df['tc{:02}'.format(i)] = [0 for j in range(len(df))]
-    
-    #add zones
-    ecozones =[get_ecozones()[code] for code in df['code']]
-    df['zone'] = ecozones
+        output.add_live_msg('remove no_data')
+        #enlever les lignes Nan 
+        #(vérifier dans le tableau d'avant qu'elles ne sont pas trop grandes)
+        data = data.dropna()
+        
+        #recuperer les valeurs de label
+        ecozones = data.label.unique()
+
+        output.add_live_msg('merge')
+        #aggreger les lignes avec les même valeurs 
+        dummy = []
+        for i in range(100):
+            dummy.append("{:.1f}".format(i))
+        stats = pd.DataFrame(dummy, columns=['treecover'])
+
+        output.add_live_msg('labeliser')
+        for index, ecozone in enumerate(ecozones): 
+            patches = data.loc[data.label == ecozone]
+            label = []
+            for i in range(100):
+                label.append(["{:.1f}".format(i), 0])
+        
+            for index, row in patches.iterrows():
+                tmp = json.loads(row['histogram'])        
+                for index, value in enumerate(tmp):
+                    label[index][1] += value[1]
+            
+            label = pd.DataFrame(label, columns=['treecover', list_zones[ecozone]])
+            stats = pd.merge(left=stats, right=label, left_on='treecover', right_on='treecover')
+            
+        #exporter 
+        stats.to_csv(out_stats, index=False) 
     
     #############################
-    ####   exporter     #########
+    ##    create the layout    ##
     #############################
-    out_stats = os.path.join(resultDir, country_code + '_stats.csv') 
-    df.to_csv(out_stats, index=False) 
+    output.add_live_msg('create the layout')
     
-    #############################
-    ##    tracer les figures ####
-    #############################
+    stats = pd.read_csv(out_stats)
     
-    list_zones = get_ecozones()
+    #recuperer les noms de label
+    ecozones = stats.columns[1:]
 
     x_sc = bq.OrdinalScale()
     ax_x = bq.Axis(label='treecover', scale=x_sc)
-
+    
+    x= []
+    for i in range(100):
+        x.append(i)
+    
     figs = []
     for ecozone in ecozones:
-        tmp = df.loc[df['zone'] == ecozone]
-        values = tmp.filter(items=['tc{:02}'.format(i) for i in range(100)])
-        
-        y_sc = bq.LinearScale(max=float(values.max(axis=1).array[0]))
+        y_sc = bq.LinearScale(max=stats[ecozone].max())
         ax_y = bq.Axis(label='surface (px)', scale=y_sc, orientation='vertical')
-        
-        x= [i for i in range(100)]
-        y = [values['tc{:02}'.format(i)].array[0] for i in range(100)]
+        y = []
+        for index, row in stats.iterrows():
+            y.append(row[ecozone])
     
         mark = bq.Bars(x=x, y=y, scales={'x': x_sc, 'y': y_sc})
     
         fig_hist = bq.Figure(
             title=ecozone,
             marks=[mark], 
-            axes=[ax_x, ax_y], 
-            padding_x=0.025, 
-            padding_y=0.025
+            axes=[ax_x, ax_y]
         )
     
-        fig_hist.layout.width = 'auto'
-        fig_hist.layout.height = 'auto'
-        fig_hist.layout.min_width = "300px"
-        fig_hist.layout.min_height = '300px'
-    
         figs.append(fig_hist)
-
+        
     
-    return figs, out_stats
+    #create the partial layout 
+    children = [
+        v.Flex(xs12=True, class_='pa-0', children=[sw.DownloadBtn('Download .csv', path=out_stats)]),
+        v.Flex(xs12=True, class_='pa-0', children=[Map]),
+        v.Flex(xs12=True, class_='pa-0', children=figs)
+    ]
+    
+    return children
 
+def getConformProj():
+    
+    wkt = """
+        PROJCS["World_Mollweide",
+            GEOGCS["GCS_WGS_1984",
+                DATUM["WGS_1984",
+                    SPHEROID["WGS_1984",6378137,298.257223563]],
+                PRIMEM["Greenwich",0],
+                UNIT["Degree",0.017453292519943295]],
+            PROJECTION["Mollweide"],
+            PARAMETER["False_Easting",0],
+            PARAMETER["False_Northing",0],
+            PARAMETER["Central_Meridian",0],
+            UNIT["Meter",1],
+            AUTHORITY["ESRI","54009"]]'
+    """
+
+    return ee.Projection(wkt)
 
 def get_ecozones():
     #create the list of zones
@@ -322,3 +276,50 @@ def get_ecozones():
     
     return list_zones
 
+def get_colors():
+    #create the color for each zones
+    #as ther are no names in the tiff file 
+    zones_colors = {
+        41: "#0266F2",
+        43: "#C7ECFF",
+        42: "#6EDCFF",
+        50: "#BCD2FF",
+        24: "#FEF3CD",
+        22: "#974000",
+        21: "#3F0D01",
+        25: "#EC9664",
+        23: "#FDE499",
+        32: "#1FE62C",
+        34: "#F1FFCD",
+        35: "#85FF41",
+        31: "#008C01",
+        33: "#D9FF97",
+        15: "#FEE6D9",
+        13: "#E31A32",
+        12: "#BD014D",
+        16: "#FE8C4D",
+        11: "#7F004E",
+        14: "#FECCB3",
+        90: "#FEFFFF"
+    }
+    
+    return zones_colors
+
+def getSldStyle():
+    #Define an SLD style of discrete intervals to apply to the image.
+    color_map_entry = '\n<ColorMapEntry color="{0}" quantity="{1}" label="{2}"/>' 
+    
+    # TODO can do it programatically
+    sld_intervals = '<RasterSymbolizer>' 
+    sld_intervals += '\n<ColorMap type="intervals" extended="false" >' 
+    
+    list_zones = get_ecozones()
+    zones_colors = get_colors()
+    
+    for zoneId in list_zones:
+        sld_intervals += color_map_entry.format(zones_colors[zoneId], zoneId, list_zones[zoneId])
+                                            
+    sld_intervals += '\n</ColorMap>'
+    sld_intervals += '\n</RasterSymbolizer>'    
+    
+    return sld_intervals
