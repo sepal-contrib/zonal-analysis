@@ -94,7 +94,7 @@ def run_zonal_computation(assetId, output):
     outline = empty.paint(**{
         'featureCollection': country_gez_2010_vector,
         'color': 1,
-        'width': 3
+        'width': 1
     })
     Map.addLayer(outline, {'palette': '000000'}, 'gez 2010 borders')
     
@@ -193,8 +193,8 @@ def run_zonal_computation(assetId, output):
     #recuperer les noms de label
     ecozones = stats.columns[1:]
 
-    x_sc = bq.OrdinalScale()
-    ax_x = bq.Axis(label='treecover', scale=x_sc)
+    x_sc = bq.LinearScale()
+    ax_x = bq.Axis(label='treecover', scale=x_sc)#, tick_values=np.array([0,10,20,30]))
     
     x= []
     for i in range(100):
@@ -202,13 +202,20 @@ def run_zonal_computation(assetId, output):
     
     figs = []
     for ecozone in ecozones:
+        
+        #get the # of the ecozone 
+        for index, value in get_ecozones().items():
+            if value == ecozone: 
+                zone_index = index
+                break
+            
         y_sc = bq.LinearScale(max=stats[ecozone].max())
-        ax_y = bq.Axis(label='surface (px)', scale=y_sc, orientation='vertical')
+        ax_y = bq.Axis(label='surface (px)', scale=y_sc, orientation='vertical', tick_format='.2e')
         y = []
         for index, row in stats.iterrows():
             y.append(row[ecozone])
     
-        mark = bq.Bars(x=x, y=y, scales={'x': x_sc, 'y': y_sc})
+        mark = bq.Bars(x=x, y=y, scales={'x': x_sc, 'y': y_sc}, colors=[get_colors()[zone_index]], stroke='black', padding=0.1)
     
         fig_hist = bq.Figure(
             title=ecozone,
@@ -225,6 +232,8 @@ def run_zonal_computation(assetId, output):
         v.Flex(xs12=True, class_='pa-0', children=[Map]),
         v.Flex(xs12=True, class_='pa-0', children=figs)
     ]
+    
+    output.add_live_msg('complete', 'success')
     
     return children
 
