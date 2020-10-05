@@ -38,7 +38,7 @@ def run_zonal_computation(assetId, output):
     ###################################
     ###      placer sur la map     ####
     ###################################
-    output.add_live_msg('viszualiser data')
+    output.add_live_msg('visualize data')
     
     aoi = ee.FeatureCollection(assetId)
     Map.addLayer(aoi, {}, 'aoi')
@@ -159,41 +159,35 @@ def run_zonal_computation(assetId, output):
 
         output.add_live_msg('merge')
         #aggreger les lignes avec les même valeurs 
-        dummy = []
-        for i in range(100):
-            dummy.append("{:.1f}".format(i))
-        stats = pd.DataFrame(dummy, columns=['treecover'])
-
-        output.add_live_msg('labeliser')
-        for index, ecozone in enumerate(ecozones): 
-            patches = data.loc[data.label == ecozone]
-            label = []
-            for i in range(100):
-                label.append(["{:.1f}".format(i), 0])
+        stats = pd.DataFrame([i for i in range(100)], columns=['treecover'])
+        stats = stats.set_index('treecover')
         
-            for index, row in patches.iterrows():
-                tmp = json.loads(row['histogram'])        
-                for index, value in enumerate(tmp):
-                    label[index][1] += value[1]
+        for _, ecozoneId in enumerate(ecozones):
+            patches = data[data.label == ecozoneId]
+            ecozone = get_ecozones()[ecozoneId] 
+            stats[ecozone] = 0
             
-            label = pd.DataFrame(label, columns=['treecover', list_zones[ecozone]])
-            stats = pd.merge(left=stats, right=label, left_on='treecover', right_on='treecover')
+            for index, patch in patches.iterrows():
+                tmp = pd.DataFrame([val[1] for val in json.loads(patch['histogram'])])
+                stats[ecozone] = stats[ecozone] + tmp[0]
+        
+        stats = stats*100*100/1e6
             
         #exporter 
-        stats.to_csv(out_stats, index=False) 
+        stats.to_csv(out_stats, index=True) 
     
     #############################
     ##    create the layout    ##
     #############################
     output.add_live_msg('create the layout')
     
-    stats = pd.read_csv(out_stats)
+    stats = pd.read_csv(out_stats, index_col='treecover')
     
     #recuperer les noms de label
-    ecozones = stats.columns[1:]
+    ecozones = stats.columns
 
     x_sc = bq.LinearScale()
-    ax_x = bq.Axis(label='treecover', scale=x_sc)#, tick_values=np.array([0,10,20,30]))
+    ax_x = bq.Axis(label='treecover', scale=x_sc)
     
     x= []
     for i in range(100):
@@ -211,7 +205,7 @@ def run_zonal_computation(assetId, output):
                 break
             
         y_sc = bq.LinearScale(max=stats[ecozone].max())
-        ax_y = bq.Axis(label='surface (px)', scale=y_sc, orientation='vertical', tick_format='.2e')
+        ax_y = bq.Axis(label='surface (Km\u00B2)', scale=y_sc, orientation='vertical')#, tick_format='.2e')
         y = []
         for index, row in stats.iterrows():
             y.append(row[ecozone])
