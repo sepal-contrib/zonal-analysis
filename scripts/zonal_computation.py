@@ -34,6 +34,7 @@ def run_zonal_computation(assetId, output):
     
     #create the map
     Map = sm.SepalMap(['CartoDB.Positron'])
+    Map.add_legend(legend_keys=list(get_ecozones().values()), legend_colors=list(get_colors().values()), position='topleft')
     
     ###################################
     ###      placer sur la map     ####
@@ -58,13 +59,8 @@ def run_zonal_computation(assetId, output):
     #load the ecozones 
     gez_2010 = ee.Image('users/bornToBeAlive/gez_2010_wgs84')
     country_gez_2010 =  gez_2010.select('b1').clip(aoi)
-    vizParam = {
-        'min': 0, 
-        'max': 21,
-        'bands': ['b1'],
-        'palette': ['black', 'green', 'blue'] 
-    }
-    Map.addLayer(country_gez_2010, vizParam, 'gez 2010 raster')
+    
+    Map.addLayer(country_gez_2010.sldStyle(getSldStyle()), {}, 'gez 2010 raster')
 
     #show the 0 values
     cdl = country_gez_2010.select('b1')
@@ -279,3 +275,51 @@ def get_ecozones():
     }
     
     return list_zones
+
+def get_colors():
+    #create the color for each zones
+    #as ther are no names in the tiff file 
+    zones_colors = {
+        41: "#0266F2",
+        43: "#C7ECFF",
+        42: "#6EDCFF",
+        50: "#BCD2FF",
+        24: "#FEF3CD",
+        22: "#974000",
+        21: "#3F0D01",
+        25: "#EC9664",
+        23: "#FDE499",
+        32: "#1FE62C",
+        34: "#F1FFCD",
+        35: "#85FF41",
+        31: "#008C01",
+        33: "#D9FF97",
+        15: "#FEE6D9",
+        13: "#E31A32",
+        12: "#BD014D",
+        16: "#FE8C4D",
+        11: "#7F004E",
+        14: "#FECCB3",
+        90: "#FEFFFF"
+    }
+    
+    return zones_colors
+
+def getSldStyle():
+    #Define an SLD style of discrete intervals to apply to the image.
+    color_map_entry = '\n<ColorMapEntry color="{0}" quantity="{1}" label="{2}"/>' 
+    
+    # TODO can do it programatically
+    sld_intervals = '<RasterSymbolizer>' 
+    sld_intervals += '\n<ColorMap type="intervals" extended="false" >' 
+    
+    list_zones = get_ecozones()
+    zones_colors = get_colors()
+    
+    for zoneId in list_zones:
+        sld_intervals += color_map_entry.format(zones_colors[zoneId], zoneId, list_zones[zoneId])
+                                            
+    sld_intervals += '\n</ColorMap>'
+    sld_intervals += '\n</RasterSymbolizer>'    
+    
+    return sld_intervals
