@@ -1,18 +1,19 @@
-import ee
-import geemap
 import os
-import numpy as np
 import csv
-import pandas as pd
-import bqplot as bq
 import json
 import io
-from contextlib import redirect_stdout
-from sepal_ui import mapping as sm
 import time
 from pathlib import Path
+
+import ee
+import geemap
+import numpy as np
+import pandas as pd
+import bqplot as bq
 import ipyvuetify as v
+from sepal_ui import mapping as sm
 from sepal_ui import sepalwidgets as sw
+from contextlib import redirect_stdout
 
 ee.Initialize()
 
@@ -21,12 +22,12 @@ def getVal(feat):
     vals = ee.Dictionary(feat.get('histogram')).keys()
     return ee.Feature(None, {'vals': vals})
 
-def run_zonal_computation(assetId, output):
+def run_zonal_computation(aoi_io, output):
     
     list_zones = get_ecozones()
     
     #get the aoi name 
-    aoi_name = Path(assetId).stem.replace('aoi_', '')
+    aoi_name = aoi_io.get_aoi_name()
     
     #create the result folder 
     resultDir = os.path.join(os.path.expanduser('~'), 'zonal_results', aoi_name, '')
@@ -40,7 +41,7 @@ def run_zonal_computation(assetId, output):
     ###################################
     output.add_live_msg('visualize data')
     
-    aoi = ee.FeatureCollection(assetId)
+    aoi = aoi_io.get_aoi_ee()
     Map.addLayer(aoi, {}, 'aoi')
     Map.zoom_ee_object(aoi.geometry())
      
@@ -134,7 +135,7 @@ def run_zonal_computation(assetId, output):
                 output.add_live_msg(f.getvalue(), 'error')
                 time.sleep(2)
                 cpt += 1
-                output.add_live_msg('Increasing tile_scale ({})'.format(2**cpt), 'warning')
+                output.add_live_msg(f'Increasing tile_scale ({2**cpt})', 'warning')
                 time.sleep(2)
             else:
                 computation = True
@@ -187,7 +188,7 @@ def run_zonal_computation(assetId, output):
     ecozones = stats.columns
 
     x_sc = bq.LinearScale()
-    ax_x = bq.Axis(label='treecover', scale=x_sc)
+    ax_x = bq.Axis(label='treecover (%)', scale=x_sc)
     
     x= []
     for i in range(100):
