@@ -1,1 +1,0 @@
-NO_AOI = "The input are not correctly set up, please provide an asset in step 1"
