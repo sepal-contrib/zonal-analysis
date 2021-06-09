@@ -22,13 +22,15 @@ def getVal(feat):
     vals = ee.Dictionary(feat.get('histogram')).keys()
     return ee.Feature(None, {'vals': vals})
 
-def run_zonal_computation(aoi_io, output):
+def run_zonal_computation(aoi, output):
+    
+    aoi_model = aoi.view.model
     
     list_zones = get_ecozones()
     
     #get the aoi name 
-    aoi_name = aoi_io.get_aoi_name()
-    
+    aoi_name = aoi_model.name
+        
     #create the result folder 
     resultDir = os.path.join(os.path.expanduser('~'), 'zonal_results', aoi_name, '')
     os.makedirs(resultDir, exist_ok=True)
@@ -41,7 +43,7 @@ def run_zonal_computation(aoi_io, output):
     ###################################
     output.add_live_msg('visualize data')
     
-    aoi = aoi_io.get_aoi_ee()
+    aoi = aoi_model.feature_collection
     Map.addLayer(aoi, {}, 'aoi')
     Map.zoom_ee_object(aoi.geometry())
      

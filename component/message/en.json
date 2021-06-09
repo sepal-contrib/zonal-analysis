@@ -1,0 +1,10 @@
+{
+    "process" : {
+        "no_aoi" : "The input are not correctly set up, please provide an asset in step 1"
+    },
+    "buttons" : {
+        "process":{
+            "label": "Start zonal analysis"
+        }
+    }
+}
