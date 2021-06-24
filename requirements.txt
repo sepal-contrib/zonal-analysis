@@ -5,5 +5,5 @@ numpy==1.19.5
 earthengine_api==0.1.254
 bqplot==0.12.29
 pandas==1.1.5
-ee==0.4
 google_api_python_client==2.10.0
+git+git://github.com/openforis/earthengine-api.git@v0.1.270#egg=earthengine-api&subdirectory=python
